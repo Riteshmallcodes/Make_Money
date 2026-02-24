@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
+import { getApiErrorMessage, unwrapData } from '../lib/http';
 
 export default function WalletPage() {
   const [wallet, setWallet] = useState(null);
@@ -7,10 +8,21 @@ export default function WalletPage() {
   const [upi, setUpi] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const fetchWallet = async () => {
-    const { data } = await api.get('/wallet.php');
-    setWallet(data);
+    setError('');
+    try {
+      const { data } = await api.get('/wallet.php');
+      const payload = unwrapData(data) || {};
+      setWallet({
+        coinBalance: payload.coinBalance ?? payload.coin_balance ?? 0,
+        minWithdrawal: payload.minWithdrawal ?? payload.min_withdrawal ?? 100,
+        withdrawals: payload.withdrawals || [],
+      });
+    } catch (fetchError) {
+      setError(getApiErrorMessage(fetchError, 'Unable to load wallet.'));
+    }
   };
 
   useEffect(() => {
@@ -20,20 +32,43 @@ export default function WalletPage() {
   const submitWithdrawal = async (event) => {
     event.preventDefault();
     setMessage('');
+    setError('');
+
+    const normalizedAmount = Number(amount);
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+      setMessage('Please enter a valid withdrawal amount.');
+      return;
+    }
+
+    if (!upi.trim()) {
+      setMessage('Please enter your UPI ID / Paytm number.');
+      return;
+    }
+
+    if (wallet && normalizedAmount < Number(wallet.minWithdrawal || 0)) {
+      setMessage(`Minimum withdrawal is ${wallet.minWithdrawal} coins.`);
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const { data } = await api.post('/wallet.php', { amount, upi });
-      setMessage(data.message);
+      const { data } = await api.post('/wallet.php', { amount: normalizedAmount, upi: upi.trim() });
+      const payload = unwrapData(data) || {};
+      setMessage(payload.message || 'Withdrawal request submitted.');
       setAmount('');
       setUpi('');
       await fetchWallet();
     } catch (error) {
-      setMessage(error?.response?.data?.message || 'Withdrawal failed.');
+      setMessage(getApiErrorMessage(error, 'Withdrawal failed.'));
     } finally {
       setLoading(false);
     }
   };
+
+  if (error) {
+    return <p className="surface-card p-3 text-sm text-red-600">{error}</p>;
+  }
 
   if (!wallet) {
     return <p className="text-sm text-slate-500">Loading wallet...</p>;

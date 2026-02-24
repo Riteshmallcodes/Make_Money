@@ -1,17 +1,30 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import StatCard from '../components/StatCard';
+import { getApiErrorMessage, unwrapData } from '../lib/http';
 
 export default function DashboardPage() {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
   const fetchDashboard = async () => {
     setLoading(true);
+    setError('');
     try {
       const { data } = await api.get('/dashboard.php');
-      setDashboard(data);
+      const payload = unwrapData(data) || {};
+      setDashboard({
+        coinBalance: payload.coinBalance ?? payload.coin_balance ?? 0,
+        completedTasks: payload.completedTasks ?? payload.completed_tasks ?? 0,
+        referralEarnings: payload.referralEarnings ?? payload.referral_earnings ?? 0,
+        dailyCheckInCompleted:
+          payload.dailyCheckInCompleted ?? payload.daily_checkin_completed ?? false,
+        withdrawalHistory: payload.withdrawalHistory ?? payload.withdrawal_history ?? [],
+      });
+    } catch (fetchError) {
+      setError(getApiErrorMessage(fetchError, 'Unable to load dashboard.'));
     } finally {
       setLoading(false);
     }
@@ -25,15 +38,23 @@ export default function DashboardPage() {
     setMessage('');
     try {
       const { data } = await api.post('/taskpage.php', { action: 'daily_checkin' });
-      setMessage(data.message);
+      setMessage(unwrapData(data)?.message || data?.message || 'Check-in completed.');
       await fetchDashboard();
     } catch (error) {
-      setMessage(error?.response?.data?.message || 'Daily check-in failed.');
+      setMessage(getApiErrorMessage(error, 'Daily check-in failed.'));
     }
   };
 
   if (loading) {
     return <p className="text-sm text-slate-500">Loading dashboard...</p>;
+  }
+
+  if (error) {
+    return <p className="surface-card p-3 text-sm text-red-600">{error}</p>;
+  }
+
+  if (!dashboard) {
+    return <p className="surface-card p-3 text-sm text-slate-700">Dashboard data unavailable.</p>;
   }
 
   return (

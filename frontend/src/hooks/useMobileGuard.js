@@ -7,11 +7,7 @@ export default function useMobileGuard() {
 
   useEffect(() => {
     const checkMobile = () => {
-      const widthMatch = window.innerWidth <= MOBILE_WIDTH;
-      const uaMatch = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-        navigator.userAgent
-      );
-      setIsMobile(widthMatch && uaMatch);
+      setIsMobile(window.innerWidth <= MOBILE_WIDTH);
     };
 
     checkMobile();

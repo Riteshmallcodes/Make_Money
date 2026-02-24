@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getApiErrorMessage } from '../lib/http';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -27,7 +28,7 @@ export default function LoginPage() {
       await login(form);
       navigate('/dashboard');
     } catch (apiError) {
-      setError(apiError?.response?.data?.message || 'Invalid login details.');
+      setError(getApiErrorMessage(apiError, 'Invalid login details.'));
     } finally {
       setLoading(false);
     }

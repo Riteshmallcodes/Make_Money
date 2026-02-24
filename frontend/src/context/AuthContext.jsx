@@ -1,42 +1,77 @@
-import { createContext, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import api from '../lib/api';
+import { clearStoredAuth, readStoredAuth, writeStoredAuth } from '../lib/authStorage';
+import { unwrapData } from '../lib/http';
 
-const AuthContext = createContext(null);
+const defaultAuthContext = {
+  token: null,
+  user: null,
+  isAuthenticated: false,
+  login: async () => {},
+  register: async () => {},
+  logout: async () => {},
+  setUser: () => {},
+};
 
-const TOKEN_KEY = 'bonus_buddy_token';
-const USER_KEY = 'bonus_buddy_user';
+const AuthContext = createContext(defaultAuthContext);
+
+function parseAuthPayload(data) {
+  const source = unwrapData(data);
+  return {
+    token: source?.token || source?.access_token || source?.jwt || null,
+    user: source?.user || source?.profile || source?.account || null,
+    raw: source,
+  };
+}
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(localStorage.getItem(TOKEN_KEY));
-  const [user, setUser] = useState(() => {
-    const rawUser = localStorage.getItem(USER_KEY);
-    return rawUser ? JSON.parse(rawUser) : null;
-  });
+  const [token, setToken] = useState(() => readStoredAuth().token);
+  const [user, setUserState] = useState(() => readStoredAuth().user);
 
-  const login = async (payload) => {
+  const setUser = useCallback((nextUser) => {
+    setUserState(nextUser || null);
+  }, []);
+
+  const persistAuth = useCallback(
+    (data) => {
+      const parsed = parseAuthPayload(data);
+      if (!parsed.token) {
+        throw new Error(parsed.raw?.message || 'Authentication token not found in API response.');
+      }
+
+      setToken(parsed.token);
+      setUser(parsed.user);
+      writeStoredAuth(parsed.token, parsed.user);
+      return parsed.raw;
+    },
+    [setUser]
+  );
+
+  const login = useCallback(async (payload) => {
     const { data } = await api.post('/login.php', payload);
-    localStorage.setItem(TOKEN_KEY, data.token);
-    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    setToken(data.token);
-    setUser(data.user);
-    return data;
-  };
+    return persistAuth(data);
+  }, [persistAuth]);
 
-  const register = async (payload) => {
-    const { data } = await api.post('/signup.php', payload);
-    localStorage.setItem(TOKEN_KEY, data.token);
-    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    setToken(data.token);
-    setUser(data.user);
-    return data;
-  };
+  const register = useCallback(async (payload) => {
+    const enrichedPayload = {
+      ...payload,
+      referral_code: payload.referralCode || payload.referral_code || '',
+    };
 
-  const logout = async () => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+    const { data } = await api.post('/signup.php', enrichedPayload);
+    return persistAuth(data);
+  }, [persistAuth]);
+
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/logout.php');
+    } catch {
+      // Ignore backend logout failure and clear local state.
+    }
     setToken(null);
     setUser(null);
-  };
+    clearStoredAuth();
+  }, [setUser]);
 
   const value = useMemo(
     () => ({
@@ -48,17 +83,13 @@ export function AuthProvider({ children }) {
       logout,
       setUser,
     }),
-    [token, user]
+    [token, user, login, register, logout, setUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used inside AuthProvider');
-  }
-
-  return context;
+  return useContext(AuthContext);
 }

@@ -1,14 +1,27 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
+import { getApiErrorMessage, unwrapData } from '../lib/http';
 
 export default function ReferralPage() {
   const [stats, setStats] = useState(null);
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     async function load() {
-      const { data } = await api.get('/referral.php');
-      setStats(data);
+      setError('');
+      try {
+        const { data } = await api.get('/referral.php');
+        const payload = unwrapData(data) || {};
+        setStats({
+          referralCode: payload.referralCode ?? payload.referral_code ?? '',
+          referredUsers: payload.referredUsers ?? payload.referred_users ?? 0,
+          totalReferralEarnings:
+            payload.totalReferralEarnings ?? payload.total_referral_earnings ?? 0,
+        });
+      } catch (loadError) {
+        setError(getApiErrorMessage(loadError, 'Unable to load referral details.'));
+      }
     }
 
     load();
@@ -24,6 +37,9 @@ export default function ReferralPage() {
   };
 
   if (!stats) {
+    if (error) {
+      return <p className="surface-card p-3 text-sm text-red-600">{error}</p>;
+    }
     return <p className="text-sm text-slate-500">Loading referral details...</p>;
   }
 
